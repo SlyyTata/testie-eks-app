@@ -138,10 +138,6 @@ jobs:
       - name: Run unit tests with coverage
         run: uv run --frozen pytest tests/unit --cov=app --cov-report=xml
 
-      - name: SonarSource Auth Action
-        uses: SonarSource/sonarqube-auth-action@v1
-        id: auth
-
       - name: Run Sonar analysis
         uses: SonarSource/sonarqube-scan-action@v8
         env:
