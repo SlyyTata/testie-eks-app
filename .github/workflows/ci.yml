@@ -130,8 +130,13 @@ jobs:
           version: "0.8.0"
           enable-cache: true
 
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      # pytest-cov is in the dev group, so this uses the project's own pytest
+      # (with pytest-asyncio and all app dependencies), same as the unit-tests job
       - name: Run unit tests with coverage
-        run: uv run --frozen --with pytest-cov pytest tests/unit --cov=app --cov-report=xml
+        run: uv run --frozen pytest tests/unit --cov=app --cov-report=xml
 
       - name: SonarSource Auth Action
         uses: SonarSource/sonarqube-auth-action@v1
@@ -143,8 +148,8 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:
           args: >
-            -Dsonar.organization=${{ steps.auth.outputs.organization }}
-            -Dsonar.projectKey=${{ steps.auth.outputs.project-key }}
+            -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
+            -Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY }}
             -Dsonar.qualitygate.wait=true
             -Dsonar.python.coverage.reportPaths=coverage.xml 
 
