@@ -1,0 +1,25 @@
+@import "tailwindcss";
+
+@theme {
+  /* REALMILE GOLD PALETTE */
+  --color-primary: #facc15;
+  --color-primary-dark: #ca8a04;
+  --color-primary-light: #fef9c3;
+
+  --color-brand-black: #0f172a;
+  --color-brand-gold: #fbbf24;
+
+  /* PREMIUM RADIUS */
+  --radius-xl: 1rem;
+  --radius-2xl: 1.5rem;
+  --radius-3xl: 2rem;
+  --radius-4xl: 3rem;
+}
+
+/* Base resets to make the app feel "Fancy" */
+@layer base {
+  body {
+    @apply bg-[#f8fafc] text-slate-900 antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+}

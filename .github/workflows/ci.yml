@@ -1,0 +1,174 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+# Cancel a run in-progress when a newer commit is available
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  UV_PYTHON_PREFERENCE: only-system   # use the Python from actions/setup-python
+
+jobs:
+
+  #Unit test Job starts here
+  unit-tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout the code
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  #v10.3.3
+        with:
+          version: "0.8.0"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      # No database is needed: tests/conftest.py supplies dummy settings
+      - name: Run unit tests
+        run: uv run pytest tests/unit -v
+
+
+  # Integration-tests job: checking that the separate parts of this app work correctly together, not just on their own.
+  integration-tests:
+    name: Integration tests
+    needs: unit-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # A real Postgres for this job only; it is thrown away when the job ends
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: realmile
+          POSTGRES_PASSWORD: realmile
+          POSTGRES_DB: realmile_test
+        ports:
+          - 5432:5432
+        # Don't start the steps until Postgres accepts connections
+        options: >-
+          --health-cmd "pg_isready -U realmile"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    # Throwaway values for the throwaway database above, not real secrets
+    env:
+      DATABASE_URL: postgresql+asyncpg://realmile:realmile@localhost:5432/realmile_test
+      DATABASE_SSL: "false"   # the CI Postgres has no SSL (Neon does)
+      SECRET_KEY: ci-test-secret-key
+      ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: "60"
+      RUN_INTEGRATION_TESTS: "1"
+
+    steps:
+      - name: Checkout the code
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 #v10.3.3
+        with:
+          version: "0.8.0"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Apply database migrations
+        run: uv run python -m app.migrate
+
+      - name: Run integration tests
+        run: uv run pytest tests/integration -v
+
+  sonarqube:
+    name: Sast and Quality gate 
+    runs-on: ubuntu-latest
+    needs: [unit-tests, integration-tests]
+    timeout-minutes: 15
+
+    permissions:
+      id-token: write # lets the job request a GitHub OIDC token
+      contents: read
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  #v10.3.3
+        with:
+          version: "0.8.0"
+          enable-cache: true
+
+      - name: Run unit tests with coverage
+        run: uv run --frozen --with pytest-cov pytest tests/unit --cov=app --cov-report=xml
+
+      - name: SonarSource Auth Action
+        uses: SonarSource/sonarqube-auth-action@v1
+        id: auth
+
+      - name: Run Sonar analysis
+        uses: SonarSource/sonarqube-scan-action@v8
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            -Dsonar.organization=${{ steps.auth.outputs.organization }}
+            -Dsonar.projectKey=${{ steps.auth.outputs.project-key }}
+            -Dsonar.qualitygate.wait=true
+            -Dsonar.python.coverage.reportPaths=coverage.xml 
+
+  notify-failure:
+    name: Send custom event details to a Slack workflow
+    needs: [unit-tests, integration-tests, sonarqube]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: failure()  
+    permissions: {}
+    steps:
+      - name: Post to Slack
+        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
+        with:
+          payload-delimiter: "_"
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: webhook-trigger
+          payload: |
+            repository: ${{ github.repository }}
+            unit-tests: ${{ needs.unit-tests.result }}
+            integration: ${{ needs.integration-tests.result }}
+            sonarqube: ${{ needs.sonarqube.result }}
+            branch: ${{ github.ref_name }}
+            event: ${{ github.event_name }}
+            actor: ${{ github.actor }}
+            run_url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+

@@ -1,0 +1,35 @@
+services:
+  # One-off job: applies alembic migrations to the database, then exits.
+  # See app/migrate.py.
+  migrate:
+    build: .
+    env_file: .env
+    command: ["python", "-m", "app.migrate"]
+    restart: "no"
+
+  api:
+    build: .
+    env_file: .env
+    ports: ["8000:8000"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    # The slim Python image has no curl, so the check uses Python itself.
+    # urlopen raises on non-2xx (e.g. 503 when the DB is unreachable) -> unhealthy.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        # URL the *browser* uses to reach the API (baked in at build time)
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000/api/v1}
+    ports: ["3000:3000"]
+    depends_on:
+      api:
+        condition: service_healthy
