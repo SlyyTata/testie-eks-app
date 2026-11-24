@@ -1,7 +1,7 @@
 """master_schema_v1
 
 Revision ID: 4eacf3eed46b
-Revises: 
+Revises:
 Create Date: 2026-05-04 18:49:59.165322
 
 """

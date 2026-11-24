@@ -30,7 +30,7 @@ async def signup(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
 
 @router.post("/login")
 async def login(
-    db: AsyncSession = Depends(get_db), 
+    db: AsyncSession = Depends(get_db),
     form_data: OAuth2PasswordRequestForm = Depends()
 ):
     """Logs in a user and returns a JWT token."""
@@ -41,7 +41,7 @@ async def login(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password"
         )
-    
+
     # 2. Generate Token
     access_token = create_access_token(subject=user.email)
     return {"access_token": access_token, "token_type": "bearer"}

@@ -21,7 +21,7 @@ class TrackingEventOut(BaseModel):
     status: ParcelStatus
     notes: Optional[str]
     created_at: datetime
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 class ParcelOut(BaseModel):
