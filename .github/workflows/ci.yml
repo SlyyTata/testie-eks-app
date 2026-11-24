@@ -56,13 +56,13 @@ jobs:
     # A real Postgres for this job only; it is thrown away when the job ends
     services:
       postgres:
-        image: postgres:17-alpine
+        image: ${{ vars.POSTGRES_IMAGE }}
         env:
-          POSTGRES_USER: realmile
-          POSTGRES_PASSWORD: realmile
-          POSTGRES_DB: realmile_test
+          POSTGRES_USER: ${{ vars.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ vars.POSTGRES_PASS }}
+          POSTGRES_DB: ${{ vars.POSTGRES_DB }}
         ports:
-          - 5432:5432
+          - ${{ vars.MIGR_PORT }}:${{ vars.MIGR_PORT }} 
         # Don't start the steps until Postgres accepts connections
         options: >-
           --health-cmd "pg_isready -U realmile"
@@ -72,11 +72,11 @@ jobs:
 
     # Throwaway values for the throwaway database above, not real secrets
     env:
-      DATABASE_URL: postgresql+asyncpg://realmile:realmile@localhost:5432/realmile_test
+      DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
       DATABASE_SSL: "false"   # the CI Postgres has no SSL (Neon does)
-      SECRET_KEY: ci-test-secret-key
-      ALGORITHM: HS256
-      ACCESS_TOKEN_EXPIRE_MINUTES: "60"
+      SECRET_KEY: ${{ secrets.TEST_SEC_KEY }}
+      ALGORITHM: ${{ vars.POSTGRES_ALG }}
+      ACCESS_TOKEN_EXPIRE_MINUTES: "${{ vars.EXP_MIN }}"
       RUN_INTEGRATION_TESTS: "1"
 
     steps:
@@ -148,7 +148,7 @@ jobs:
             -Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY }}
             -Dsonar.qualitygate.wait=true
             -Dsonar.python.coverage.reportPaths=coverage.xml 
-
+ 
   notify-failure:
     name: Send custom event details to a Slack workflow
     needs: [unit-tests, integration-tests, sonarqube]
