@@ -1,29 +1,36 @@
-name: CI
+name: CICD Workflow
 
 on:
   push:
-    branches: ["**"]
-  pull_request:
     branches: [main]
+  workflow_dispatch:
 
-# Cancel a run in-progress when a newer commit is available
+# Queue runs; never cancel one halfway (it may be deploying)
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
 
 env:
   UV_PYTHON_PREFERENCE: only-system   # use the Python from actions/setup-python
+  DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+  AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  API_REPOSITORY: ${{ vars.API_REPOSITORY }}
+  WEB_REPOSITORY: ${{ vars.WEB_REPOSITORY }}
+  NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
+  EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
+  K8S_NAMESPACE: ${{ vars.K8S_NAMESPACE }}
 
 jobs:
 
+  # Job Number 1.
   #Unit test Job starts here
   unit-tests:
     name: Unit tests
     runs-on: ubuntu-latest
-    timeout-minutes: 10
     steps:
       - name: Checkout the code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 #v7
@@ -46,13 +53,12 @@ jobs:
       - name: Run unit tests
         run: uv run pytest tests/unit -v
 
-
+  # Job Number 2.
   # Integration-tests job: checking that the separate parts of this app work correctly together, not just on their own.
   integration-tests:
     name: Integration tests
-    needs: unit-tests
+    needs: [unit-tests]
     runs-on: ubuntu-latest
-    timeout-minutes: 15
     # A real Postgres for this job only; it is thrown away when the job ends
     services:
       postgres:
@@ -62,10 +68,10 @@ jobs:
           POSTGRES_PASSWORD: ${{ vars.POSTGRES_PASS }}
           POSTGRES_DB: ${{ vars.POSTGRES_DB }}
         ports:
-          - ${{ vars.MIGR_PORT }}:${{ vars.MIGR_PORT }} 
+          - ${{ vars.MIGR_PORT }}:5432
         # Don't start the steps until Postgres accepts connections
         options: >-
-          --health-cmd "pg_isready -U realmile"
+          --health-cmd "pg_isready -U ${{ vars.POSTGRES_USER }}"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -103,14 +109,14 @@ jobs:
       - name: Run integration tests
         run: uv run pytest tests/integration -v
 
+  # Job Number 3.
+  # Static analysis security tests starts here
   sonarqube:
-    name: Sast and Quality gate 
+    name: Sast and Quality gate
     runs-on: ubuntu-latest
     needs: [unit-tests, integration-tests]
-    timeout-minutes: 15
 
     permissions:
-      id-token: write # lets the job request a GitHub OIDC token
       contents: read
 
     steps:
@@ -147,14 +153,128 @@ jobs:
             -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
             -Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY }}
             -Dsonar.qualitygate.wait=true
-            -Dsonar.python.coverage.reportPaths=coverage.xml 
- 
+            -Dsonar.python.coverage.reportPaths=coverage.xml
+
+  # Job Number 4.
+  # To build, scan and push the docker image job starts here
+  build-scan-push-image:
+    name: Build, scan and push ${{ matrix.name }} image
+    runs-on: ubuntu-latest
+    needs: [unit-tests, integration-tests, sonarqube]
+
+    permissions:
+      contents: read    # no AWS access needed: images go to Docker Hub
+
+    strategy:
+      # I used a matrix because the API and web images go through exactly the same steps:
+      # check out the code, set up Buildx, log in to Docker Hub, then build and push.
+      # Only a few values differ: the name, the repository, the folder and the build argument.
+      # The matrix lets me write the steps once and run them for each image.
+      matrix:
+        include:
+          - name: api
+            repository: ${{ vars.API_REPOSITORY }}
+            context: .
+            build-args: ""
+          - name: web
+            repository: ${{ vars.WEB_REPOSITORY }}
+            context: ./frontend
+            # Browser calls the API on the same address; the ALB routes /api/* to it
+            build-args: NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL }}
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 #v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  #v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  #v3
+        with:
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build the Docker Image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  #v6
+        with:
+          context: ${{ matrix.context }}
+          platforms: linux/amd64
+          load: true  #this put the image in the docker runner so trivy can scan it
+          push: false
+          build-args: ${{ matrix.build-args }}
+          tags: |
+            docker.io/${{ env.DOCKERHUB_USERNAME }}/${{ matrix.repository }}:${{ github.sha }}
+            docker.io/${{ env.DOCKERHUB_USERNAME }}/${{ matrix.repository }}:latest
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  #v0.36.0
+        with:
+          image-ref: docker.io/${{ env.DOCKERHUB_USERNAME }}/${{ matrix.repository }}:${{ github.sha }}
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Push image to Docker Hub
+        env:
+          IMAGE: docker.io/${{ env.DOCKERHUB_USERNAME }}/${{ matrix.repository }}
+        run: |
+          docker push "$IMAGE:${{ github.sha }}"
+          docker push "$IMAGE:latest"
+
+  # Job Number 5.
+  # Deploying to Amazon EKS Job starts here
+  deploy-eks:
+    name: Deploy to Amazon EKS
+    needs: [build-scan-push-image]
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      contents: read
+
+    env:
+      API_IMAGE: docker.io/${{ vars.DOCKERHUB_USERNAME }}/${{ vars.API_REPOSITORY }}:${{ github.sha }}
+      WEB_IMAGE: docker.io/${{ vars.DOCKERHUB_USERNAME }}/${{ vars.WEB_REPOSITORY }}:${{ github.sha }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 #v7
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  #v6.3.0
+        with:
+          aws-region: ${{ vars.AWS_REGION }}
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+
+      - name: Connect kubectl
+        run: aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME"
+
+      - name: Run database migrations
+        run: |
+          kubectl -n "$K8S_NAMESPACE" delete job migrate --ignore-not-found --wait=true
+          sed "s|API_IMAGE_PLACEHOLDER|$API_IMAGE|" k8s/migrate-job.yaml | kubectl -n "$K8S_NAMESPACE" apply -f -
+          kubectl -n "$K8S_NAMESPACE" wait --for=condition=complete job/migrate --timeout=300s \
+            || { kubectl -n "$K8S_NAMESPACE" logs job/migrate; exit 1; }
+
+      - name: Deploy to EKS
+        run: |
+          sed "s|API_IMAGE_PLACEHOLDER|$API_IMAGE|" k8s/api.yaml | kubectl -n "$K8S_NAMESPACE" apply -f -
+          sed "s|WEB_IMAGE_PLACEHOLDER|$WEB_IMAGE|" k8s/web.yaml | kubectl -n "$K8S_NAMESPACE" apply -f -
+          kubectl -n "$K8S_NAMESPACE" apply -f k8s/ingress.yaml
+          kubectl -n "$K8S_NAMESPACE" rollout status deployment/api --timeout=300s
+          kubectl -n "$K8S_NAMESPACE" rollout status deployment/web --timeout=300s
+
+  # Job Number 6.
+  # Notifying the team's channel if anything fails
   notify-failure:
     name: Send custom event details to a Slack workflow
-    needs: [unit-tests, integration-tests, sonarqube]
+    needs: [unit-tests, integration-tests, sonarqube, build-scan-push-image, deploy-eks]
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    if: failure()  
+    if: failure()
     permissions: {}
     steps:
       - name: Post to Slack
@@ -168,8 +288,9 @@ jobs:
             unit-tests: ${{ needs.unit-tests.result }}
             integration: ${{ needs.integration-tests.result }}
             sonarqube: ${{ needs.sonarqube.result }}
+            build-scan-push-image: ${{ needs.build-scan-push-image.result }}
+            deploy-eks: ${{ needs.deploy-eks.result }}
             branch: ${{ github.ref_name }}
             event: ${{ github.event_name }}
             actor: ${{ github.actor }}
             run_url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
