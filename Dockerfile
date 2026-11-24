@@ -1,6 +1,10 @@
 FROM python:3.14-slim
 COPY --from=ghcr.io/astral-sh/uv:0.8.0 /uv /bin/uv
 
+# The app is installed with uv, so pip is never used. Removing it also removes
+# the libraries pip bundles (urllib3, msgpack, setuptools), which Trivy flags.
+RUN python -m pip uninstall -y pip
+
 WORKDIR /app
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 
