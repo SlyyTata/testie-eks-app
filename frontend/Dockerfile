@@ -16,6 +16,10 @@ RUN npm run build
 FROM node:22-alpine AS run
 WORKDIR /app
 ENV NODE_ENV=production
+# The app runs with plain `node server.js`, so npm, npx and corepack are never used.
+# Removing them also removes the packages bundled inside npm, which Trivy flags.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+      /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
 COPY --from=build /app/public ./public
