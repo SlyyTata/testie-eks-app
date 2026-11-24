@@ -11,7 +11,7 @@ router = APIRouter()
 
 @router.post("/", response_model=PartnerOut)
 async def create_partner(
-    partner_in: PartnerCreate, 
+    partner_in: PartnerCreate,
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user) # Only logged in users can add partners
 ):

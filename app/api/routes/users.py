@@ -17,7 +17,7 @@ async def read_user_me(current_user: User = Depends(get_current_user)):
 
 @router.get("/team/{role}", response_model=List[UserOut])
 async def get_users_by_role(
-    role: UserRole, 
+    role: UserRole,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -27,7 +27,7 @@ async def get_users_by_role(
     # Only Admin and Ops Staff should be able to see the rider list
     if current_user.role not in [UserRole.ADMIN, UserRole.OPS_STAFF]:
         raise HTTPException(status_code=403, detail="Not authorized to view team lists")
-        
+
     result = await db.execute(select(User).where(User.role == role))
     return result.scalars().all()
 
@@ -44,7 +44,7 @@ async def get_delivery_personnel(
 
 @router.post("/", response_model=UserOut)
 async def create_new_user(
-    user_in: UserCreate, 
+    user_in: UserCreate,
     db: AsyncSession = Depends(get_db),
     admin_user: User = Depends(check_admin) # PROTECTION HERE
 ):
@@ -54,7 +54,7 @@ async def create_new_user(
     existing_user = await user_svc.get_user_by_email(db, user_in.email)
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
-    
+
     return await user_svc.create_user(db, user_in)
 
 @router.get("/", response_model=List[UserOut])
@@ -70,7 +70,7 @@ async def get_all_users(
 
 @router.delete("/{user_id}")
 async def delete_user(
-    user_id: int, 
+    user_id: int,
     db: AsyncSession = Depends(get_db),
     admin_user: User = Depends(check_admin)
 ):
@@ -81,7 +81,7 @@ async def delete_user(
     user = result.scalars().first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
+
     await db.delete(user)
     await db.commit()
     return {"message": "User deleted successfully"}

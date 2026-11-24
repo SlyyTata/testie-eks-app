@@ -4,13 +4,13 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "Realmile Logistics API"
     VERSION: str = "1.0.0"
     API_V1_STR: str = "/api/v1"
-    
+
     # Database config
     DATABASE_URL: str
     # Use SSL for the database connection. Neon requires it; set to false only
     # for a local/CI Postgres that has no SSL (e.g. the test database in CI).
     DATABASE_SSL: bool = True
-    
+
     # Security config
     SECRET_KEY: str
     ALGORITHM: str

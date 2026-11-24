@@ -20,16 +20,16 @@ class User(Base):
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     hashed_password: Mapped[str] = mapped_column(String, nullable=False)
-    
+
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), nullable=False)
-    
+
     # New Fields for Hierarchy and Logistics
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     phone_number: Mapped[Optional[str]] = mapped_column(String(20))
-    
+
     # For Riders/Foot Couriers: who is their supervisor?
     supervisor_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
-    
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     # Relationships

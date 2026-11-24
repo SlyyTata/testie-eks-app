@@ -23,7 +23,7 @@ async def mock_external_fetch(waybill: str):
     In the real world, this would be an API call.
     """
     await asyncio.sleep(0.5) # Simulate a fast network response
-    
+
     # We generate semi-realistic data based on the waybill number
     return {
         "name": f"Recipient for {waybill}",
@@ -41,15 +41,15 @@ async def scan_in_parcel(db: AsyncSession, waybill_number: str, user_id: int):
     # Step A: Identify the Partner via Prefix (e.g. SPD-123)
     detected_partner_name = None
     waybill_upper = waybill_number.upper()
-    
+
     for prefix, name in PREFIX_MAP.items():
         if waybill_upper.startswith(prefix):
             detected_partner_name = name
             break
-    
+
     if not detected_partner_name:
         raise HTTPException(
-            status_code=400, 
+            status_code=400,
             detail=f"Unknown waybill prefix. Please use {', '.join(PREFIX_MAP.keys())}"
         )
 
@@ -58,10 +58,10 @@ async def scan_in_parcel(db: AsyncSession, waybill_number: str, user_id: int):
         select(Partner).where(Partner.name == detected_partner_name)
     )
     partner = partner_query.scalars().first()
-    
+
     if not partner:
         raise HTTPException(
-            status_code=400, 
+            status_code=400,
             detail=f"Partner '{detected_partner_name}' recognized but not found in system. Please add them first."
         )
 
@@ -78,7 +78,7 @@ async def scan_in_parcel(db: AsyncSession, waybill_number: str, user_id: int):
         status=ParcelStatus.IN_WAREHOUSE
     )
     db.add(new_parcel)
-    await db.flush() 
+    await db.flush()
 
     # Step E: Create the Tracking Event (Audit Trail)
     event = TrackingEvent(
@@ -88,9 +88,9 @@ async def scan_in_parcel(db: AsyncSession, waybill_number: str, user_id: int):
         updated_by_id=user_id
     )
     db.add(event)
-    
+
     await db.commit()
-    
+
     # Re-query to return full object with history for the frontend
     result = await db.execute(
         select(Parcel)

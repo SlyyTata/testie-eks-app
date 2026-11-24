@@ -9,8 +9,8 @@ from app.models.user import User, UserRole
 from app.models.parcel import Parcel, ParcelStatus, TrackingEvent
 from app.schemas.parcel import (
     ParcelScanRequest,
-    ParcelOut, 
-    ParcelDispatch, 
+    ParcelOut,
+    ParcelDispatch,
     StatusUpdate,
 )
 from app.services import parcel_svc
@@ -20,7 +20,7 @@ router = APIRouter()
 
 @router.post("/scan-in", response_model=ParcelOut)
 async def scan_parcel_in(
-    scan_req: ParcelScanRequest, 
+    scan_req: ParcelScanRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -30,7 +30,7 @@ async def scan_parcel_in(
     # 1. Permission Check: Only Admin and Ops Staff can scan items
     if current_user.role not in [UserRole.ADMIN, UserRole.OPS_STAFF]:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, 
+            status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to scan in parcels"
         )
 
@@ -38,15 +38,15 @@ async def scan_parcel_in(
     existing = await parcel_svc.get_parcel_by_waybill(db, scan_req.waybill_number)
     if existing:
         raise HTTPException(
-            status_code=400, 
+            status_code=400,
             detail="Waybill already scanned in system"
         )
 
     # 3. Call the Magic Service
     # This will identify prefix, fetch mock data, and save everything.
     return await parcel_svc.scan_in_parcel(
-        db, 
-        waybill_number=scan_req.waybill_number, 
+        db,
+        waybill_number=scan_req.waybill_number,
         user_id=current_user.id
     )
 
@@ -97,7 +97,7 @@ async def dispatch_parcel(
     # 2. Update the parcel
     parcel.rider_id = dispatch_data.rider_id
     parcel.status = ParcelStatus.DISPATCHED
-    
+
     # 3. Create a tracking event so your uncle knows which rider took it
     event = TrackingEvent(
         parcel_id=parcel.id,
@@ -106,9 +106,9 @@ async def dispatch_parcel(
         updated_by_id=current_user.id
     )
     db.add(event)
-    
+
     await db.commit()
-    
+
     # Re-fetch with history for the response
     return await parcel_svc.get_parcel_by_waybill(db, dispatch_data.waybill_number)
 
@@ -134,7 +134,7 @@ async def update_parcel_status(
 
     # 4. Update the parcel
     parcel.status = new_status
-    
+
     # 5. SPECIAL LOGIC: If returned, clear the rider
     if new_status == "returned":
         parcel.rider_id = None

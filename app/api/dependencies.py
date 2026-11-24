@@ -21,7 +21,7 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             await session.close()
 
 async def get_current_user(
-    db: AsyncSession = Depends(get_db), 
+    db: AsyncSession = Depends(get_db),
     token: str = Depends(oauth2_scheme)
 ) -> User:
     """
@@ -56,7 +56,7 @@ def check_admin(current_user: User = Depends(get_current_user)):
     """
     if current_user.role != UserRole.ADMIN:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, 
+            status_code=status.HTTP_403_FORBIDDEN,
             detail="Only Admins can perform this action"
         )
     return current_user

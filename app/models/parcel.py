@@ -11,7 +11,7 @@ class ParcelStatus(str, enum.Enum):
     DELIVERED = "delivered"             # Successfully delivered
     DELIVERY_FAILED = "delivery_failed" # Attempted but failed
     CANCELLED = "cancelled"
-    RETURNED = "returned" 
+    RETURNED = "returned"
     RETURN_OVERDUE = "return_overdue"   # Breached the 5-day return SLA
 
 class Parcel(Base):
@@ -19,27 +19,27 @@ class Parcel(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     waybill_number: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
-    
+
     # Relationships
     partner_id: Mapped[int] = mapped_column(ForeignKey("partners.id"), nullable=False)
     rider_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=True) # Assigned rider
-    
+
     status: Mapped[ParcelStatus] = mapped_column(Enum(ParcelStatus), default=ParcelStatus.PICKED_UP)
-    
+
     # Recipient Info
     recipient_name: Mapped[str] = mapped_column(String(255))
     recipient_phone: Mapped[str] = mapped_column(String(20))
     delivery_address: Mapped[str] = mapped_column(Text)
-    
+
     # SLA Tracking Timestamps
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    
+
     # 5 Days Delivery SLA
     delivery_deadline: Mapped[datetime] = mapped_column(
-        DateTime, 
+        DateTime,
         default=lambda: datetime.utcnow() + timedelta(days=5)
     )
-    
+
     # 5 Days Return SLA (Starts if delivery fails or is overdue)
     return_deadline: Mapped[datetime] = mapped_column(DateTime, nullable=True)
 

@@ -24,7 +24,7 @@ async def get_dashboard_stats(
         select(Parcel.status, func.count(Parcel.id)).group_by(Parcel.status)
     )
     results = status_query.all()
-    
+
     # Extract counts into a temporary dictionary
     db_counts = {}
     for status, count in results:
